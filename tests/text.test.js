@@ -52,6 +52,6 @@ test('parses dictionary API responses', () => {
   ]);
   assert.equal(res.phonetic, '/juːˈbɪkwɪtəs/');
   assert.equal(res.audio, 'https://example.org/u.mp3');
-  assert.deepEqual(res.senses, [{ pos: 'adjective', definition: 'Being everywhere at once.', example: 'ubiquitous phones' }]);
+  assert.deepEqual(res.senses, [{ pos: 'adjective', definition: 'Being everywhere at once.', example: 'ubiquitous phones', synonyms: [] }]);
   assert.deepEqual(parseEntries(null).senses, []);
 });

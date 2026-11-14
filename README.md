@@ -26,8 +26,15 @@ and no server, and your data stays in your browser.
 - **Fast capture.** A **"Save word" bookmarklet** grabs the selected word, its whole
   sentence and the page title from any web page. On Android, install the app and use
   **Share → WordRecall**.
-- **Dictionary lookup** (free [dictionaryapi.dev](https://dictionaryapi.dev)). You pick the
-  meaning that matches your sentence, and pronunciation audio is included.
+- **Automatic fill-in** from the free [dictionaryapi.dev](https://dictionaryapi.dev), which
+  is built from Wiktionary. It needs no key and handles phrases and inflected forms. As you
+  type a word, the app fills in:
+  - the meaning that best fits your sentence (one tap picks a different one)
+  - part of speech, pronunciation and audio
+  - similar words, shown on the review card after you answer
+  - a sample sentence, if you didn't give one
+
+  Anything you typed yourself is never overwritten.
 - **Review screen** with keyboard shortcuts: `Space` reveals the answer, `1–4` rates
   Again/Hard/Good/Easy, and `Z` undoes. Each rating button shows when you'll see the word
   next.
