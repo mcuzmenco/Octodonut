@@ -8,7 +8,7 @@ import {
   dueCards,
   isProduceUnlocked,
 } from './session.js';
-import { lookup } from './dictionary.js';
+import { lookup, bestSense } from './dictionary.js';
 import { splitOnWord, containsWord, isCorrectAnswer, formatInterval } from './text.js';
 
 // ---------------------------------------------------------------- state
@@ -215,11 +215,15 @@ function recognizeCard(word) {
           'div',
           { class: 'back' },
           h('div', { class: 'definition' }, word.pos ? h('em', { class: 'pos' }, word.pos) : null, ' ', word.definition),
+          synonymsEl(word),
           word.note ? h('div', { class: 'note' }, '💡 ', word.note) : null,
         )
       : null,
   );
 }
+
+const synonymsEl = (word) =>
+  word.synonyms?.length ? h('div', { class: 'similar muted' }, `≈ ${word.synonyms.join(', ')}`) : null;
 
 function produceCard(word) {
   const revealed = session.revealed;
@@ -265,6 +269,7 @@ function produceCard(word) {
           ),
           h('div', { class: 'headword' }, h('span', {}, word.word), speakBtn(word)),
           word.phonetic ? h('div', { class: 'phonetic' }, word.phonetic) : null,
+          synonymsEl(word),
           word.note ? h('div', { class: 'note' }, '💡 ', word.note) : null,
         )
       : form,
@@ -455,16 +460,60 @@ document.addEventListener('keydown', (e) => {
 function renderForm(existing) {
   const prefill = existing || pendingPrefill || {};
   pendingPrefill = null;
-  const extra = { phonetic: prefill.phonetic || '', audio: prefill.audio || '' };
+  const extra = {
+    phonetic: prefill.phonetic || '',
+    audio: prefill.audio || '',
+    synonyms: Array.isArray(prefill.synonyms) ? prefill.synonyms : [],
+  };
   const view = $('#view');
 
   const senses = h('div', { class: 'senses' });
   const status = h('span', { class: 'muted small' });
+  const similar = h('div', { class: 'similar small muted' });
+  // Fields the dictionary filled in. They may be replaced by a later lookup;
+  // anything you type yourself is never overwritten.
+  const autoFilled = new Set();
   let controller;
+  let lastLookup = existing ? existing.word.trim().toLowerCase() : '';
+  let debounce;
 
-  async function doLookup() {
+  const showSimilar = () => {
+    similar.textContent = extra.synonyms.length ? `Similar: ${extra.synonyms.join(', ')}` : '';
+  };
+
+  function setAuto(name, value) {
+    const el = form.elements[name];
+    if (el.value.trim() && !autoFilled.has(name)) return;
+    el.value = value;
+    if (value) autoFilled.add(name);
+    else autoFilled.delete(name);
+  }
+
+  function chooseSense(s, button, { manual }) {
+    const f = form.elements;
+    if (manual) {
+      // An explicit pick always wins over what you had in the meaning fields.
+      f.definition.value = s.definition;
+      f.pos.value = s.pos;
+      autoFilled.delete('definition');
+      autoFilled.delete('pos');
+    } else {
+      setAuto('definition', s.definition);
+      setAuto('pos', s.pos);
+    }
+    // No sentence of your own yet? Use the dictionary's example so the cards have context.
+    // (Only replaces a sentence the dictionary put there, never one you wrote.)
+    const example = s.example && containsWord(s.example, f.word.value) ? s.example : '';
+    setAuto('context', example);
+    extra.synonyms = s.synonyms || [];
+    showSimilar();
+    senses.querySelectorAll('.sense').forEach((b) => b.classList.toggle('chosen', b === button));
+  }
+
+  async function doLookup({ force = false } = {}) {
     const word = form.elements.word.value.trim();
-    if (!word) return;
+    if (!word || (!force && word.toLowerCase() === lastLookup)) return;
+    lastLookup = word.toLowerCase();
     controller?.abort();
     controller = new AbortController();
     status.textContent = 'Looking up…';
@@ -474,39 +523,44 @@ function renderForm(existing) {
       extra.phonetic = res.phonetic;
       extra.audio = res.audio;
       if (!res.senses.length) {
+        extra.synonyms = [];
+        showSimilar();
         status.textContent = 'No dictionary entry found — write your own definition.';
         return;
       }
-      status.textContent = 'Pick the meaning that matches your sentence:';
-      senses.append(
-        ...res.senses.slice(0, 12).map((s) =>
-          h(
-            'button',
-            {
-              type: 'button',
-              class: 'sense',
-              onclick: (e) => {
-                form.elements.definition.value = s.definition;
-                form.elements.pos.value = s.pos;
-                senses.querySelectorAll('.sense').forEach((b) => b.classList.remove('chosen'));
-                e.currentTarget.classList.add('chosen');
-              },
-            },
-            s.pos ? h('em', { class: 'pos' }, s.pos) : null,
-            ' ',
-            s.definition,
-            s.example ? h('span', { class: 'example' }, `“${s.example}”`) : null,
-          ),
+      const shown = res.senses.slice(0, 12);
+      const buttons = shown.map((s) =>
+        h(
+          'button',
+          { type: 'button', class: 'sense', onclick: (e) => chooseSense(s, e.currentTarget, { manual: true }) },
+          s.pos ? h('em', { class: 'pos' }, s.pos) : null,
+          ' ',
+          s.definition,
+          s.example ? h('span', { class: 'example' }, `“${s.example}”`) : null,
         ),
       );
+      senses.append(...buttons);
+      const userWroteMeaning = form.elements.definition.value.trim() && !autoFilled.has('definition');
+      if (userWroteMeaning) {
+        status.textContent = 'Dictionary meanings — tap one to use it instead of yours:';
+      } else {
+        const i = bestSense(shown, form.elements.context.value, word);
+        chooseSense(shown[i], buttons[i], { manual: false });
+        status.textContent =
+          shown.length > 1
+            ? 'Filled in from the dictionary. Tap another meaning if it doesn’t match your sentence:'
+            : 'Filled in from the dictionary.';
+      }
     } catch (err) {
       if (err.name === 'AbortError') return;
+      lastLookup = '';
       status.textContent = navigator.onLine ? 'Lookup failed — write your own definition.' : 'You’re offline — write your own definition.';
     }
   }
 
   const field = (label, control, help) =>
     h('label', { class: 'field' }, h('span', { class: 'label' }, label), control, help ? h('span', { class: 'help' }, help) : null);
+  const manualEdit = (e) => autoFilled.delete(e.target.name);
 
   const form = h(
     'form',
@@ -524,27 +578,38 @@ function renderForm(existing) {
           autocomplete: 'off',
           autocapitalize: 'off',
           placeholder: 'e.g. ubiquitous',
+          oninput: () => {
+            clearTimeout(debounce);
+            debounce = setTimeout(() => doLookup(), 800);
+          },
+          onblur: () => {
+            clearTimeout(debounce);
+            doLookup();
+          },
           onkeydown: (e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
-              doLookup();
+              clearTimeout(debounce);
+              doLookup({ force: true });
             }
           },
         }),
-        h('button', { type: 'button', class: 'ghost', onclick: doLookup }, 'Look up'),
+        h('button', { type: 'button', class: 'ghost', onclick: () => doLookup({ force: true }) }, 'Look up'),
       ),
+      existing ? null : 'Meaning, pronunciation and similar words are filled in automatically.',
     ),
     field(
       'Sentence where you found it',
-      h('textarea', { name: 'context', rows: 3, value: prefill.context || '', placeholder: 'Paste or type the sentence from your book or article' }),
+      h('textarea', { name: 'context', rows: 3, value: prefill.context || '', oninput: manualEdit, placeholder: 'Paste or type the sentence from your book or article' }),
       'Memories are tied to context: you’ll be quizzed on the word inside this sentence.',
     ),
     h('div', {}, status, senses),
-    field('Meaning', h('textarea', { name: 'definition', rows: 2, required: true, value: prefill.definition || '' })),
+    field('Meaning', h('textarea', { name: 'definition', rows: 2, required: true, value: prefill.definition || '', oninput: manualEdit })),
+    similar,
     h(
       'div',
       { class: 'row two' },
-      field('Part of speech', h('input', { name: 'pos', value: prefill.pos || '', placeholder: 'adjective' })),
+      field('Part of speech', h('input', { name: 'pos', value: prefill.pos || '', oninput: manualEdit, placeholder: 'adjective' })),
       field('Source', h('input', { name: 'source', value: prefill.source || '', placeholder: 'Book or article' })),
     ),
     field(
@@ -562,6 +627,7 @@ function renderForm(existing) {
 
   function onSave(e) {
     e.preventDefault();
+    clearTimeout(debounce);
     const f = form.elements;
     const fields = {
       word: f.word.value.trim(),
@@ -575,6 +641,7 @@ function renderForm(existing) {
 
     if (existing) {
       if (fields.word.toLowerCase() !== existing.word.toLowerCase()) Object.assign(existing, extra);
+      else existing.synonyms = extra.synonyms;
       Object.assign(existing, fields);
       persist();
       markStale();
@@ -594,6 +661,7 @@ function renderForm(existing) {
   }
 
   view.replaceChildren(form);
+  showSimilar();
   if (!existing) form.elements.word.focus();
   if (!existing && prefill.word && !prefill.definition) doLookup();
 }

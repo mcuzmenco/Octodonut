@@ -44,6 +44,7 @@ export function normalizeData(obj) {
         phonetic: '',
         audio: '',
         note: '',
+        synonyms: [],
         createdAt: 0,
         ...w,
         cards: {
@@ -102,6 +103,7 @@ export function createWord(fields, today, now = Date.now()) {
     phonetic: fields.phonetic || '',
     audio: fields.audio || '',
     note: (fields.note || '').trim(),
+    synonyms: Array.isArray(fields.synonyms) ? fields.synonyms.slice(0, 6) : [],
     createdAt: now,
     cards: { recognize: newCard(today), produce: newCard(today) },
   };
