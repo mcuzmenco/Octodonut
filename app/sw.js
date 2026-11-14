@@ -1,7 +1,7 @@
 // Offline support: network-first for the app's own files, falling back to cache.
 // Dictionary requests (other origins) are not intercepted.
 
-const CACHE = 'wordrecall-v2';
+const CACHE = 'wordrecall-v3';
 const SHELL = [
   './',
   './index.html',
@@ -15,6 +15,9 @@ const SHELL = [
   './js/text.js',
   './manifest.webmanifest',
   './icon.svg',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (event) => {
