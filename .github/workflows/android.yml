@@ -1,0 +1,87 @@
+name: Android app
+
+# Builds an installable APK on every push.
+#   main         → release "android-latest"   (the version you normally install)
+#   other branch → pre-release "android-preview" (try changes before merging)
+on:
+  push:
+    paths:
+      - 'app/**'
+      - 'android/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.json'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run android:sync
+
+      # Uses the repo's dev signing key unless you add your own key as secrets
+      # (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD).
+      - name: Use private signing key if configured
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "WORDRECALL_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          echo "WORDRECALL_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "WORDRECALL_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+          echo "WORDRECALL_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.${{ github.run_number }}
+          mkdir -p ../dist
+          cp app/build/outputs/apk/release/app-release.apk ../dist/WordRecall.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WordRecall-apk
+          path: dist/WordRecall.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref == 'refs/heads/main' && 'android-latest' || 'android-preview' }}
+          name: ${{ github.ref == 'refs/heads/main' && 'WordRecall for Android' || 'WordRecall for Android (preview)' }}
+          prerelease: ${{ github.ref != 'refs/heads/main' }}
+          target_commitish: ${{ github.sha }}
+          make_latest: ${{ github.ref == 'refs/heads/main' }}
+          files: dist/WordRecall.apk
+          body: |
+            Version 1.${{ github.run_number }} · built from `${{ github.ref_name }}` at ${{ github.sha }}
+
+            **Install:** open this page on your Android phone, tap **WordRecall.apk**, then **Install**.
+            The first time, Android asks you to allow installs from your browser.
+            Updates install over the old version and keep your words.

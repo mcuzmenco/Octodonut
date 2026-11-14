@@ -5,7 +5,14 @@ import { newCard } from './fsrs.js';
 export const STORAGE_KEY = 'wordrecall.v1';
 
 export function defaultSettings() {
-  return { desiredRetention: 0.9, newPerDay: 10, maxReviews: 200, lastBackup: null };
+  return {
+    desiredRetention: 0.9,
+    newPerDay: 10,
+    maxReviews: 200,
+    lastBackup: null,
+    reminders: true,
+    reminderTime: '09:00',
+  };
 }
 
 export function emptyData() {
@@ -24,6 +31,8 @@ export function normalizeSettings(s = {}) {
     newPerDay: Math.round(num(s.newPerDay, 0, 200, d.newPerDay)),
     maxReviews: Math.round(num(s.maxReviews, 10, 9999, d.maxReviews)),
     lastBackup: typeof s.lastBackup === 'string' ? s.lastBackup : null,
+    reminders: typeof s.reminders === 'boolean' ? s.reminders : d.reminders,
+    reminderTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(s.reminderTime || '') ? s.reminderTime : d.reminderTime,
   };
 }
 

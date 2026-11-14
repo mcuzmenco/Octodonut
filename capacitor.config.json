@@ -1,0 +1,14 @@
+{
+  "appId": "io.github.mcuzmenco.wordrecall",
+  "appName": "WordRecall",
+  "webDir": "app",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_wordrecall",
+      "iconColor": "#4F46E5"
+    }
+  }
+}

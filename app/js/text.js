@@ -65,3 +65,72 @@ export function formatInterval(days) {
   if (days < 365) return `${(days / 30).toFixed(1).replace(/\.0$/, '')}mo`;
   return `${(days / 365).toFixed(1).replace(/\.0$/, '')}y`;
 }
+
+// ------------------------------------------------ text shared from other apps
+
+const URL_RE = /\bhttps?:\/\/\S+/gi;
+// Promotional lines reading apps add around a shared quote.
+const PROMO_RE = /start reading|read (it )?(for )?free|get (it|this book)|download|kindle|amazon|goodreads|^check out/i;
+const QUOTE_RE = /^\s*["“”‘'«]([\s\S]+?)["“”’'»]\s*(?:\n|$|[—–-]|\bfrom\b)/i;
+
+const cleanSource = (s) =>
+  s
+    .replace(/^[\s—–\-:,.]*(from\s+)?/i, '')
+    .replace(/[\s,.]+$/, '')
+    .replace(/^["“](.+)["”]$/, '$1')
+    .trim()
+    .slice(0, 120);
+
+const stripEdges = (w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+
+/**
+ * Turn shared text into form fields. Handles a bare word, a bare sentence, and
+ * the "“quote” — Book Title by Author https://…" shape that Kindle and other
+ * reading apps produce.
+ * @returns {{ word: string, context: string, source: string }}
+ */
+export function parseShared(text, subject = '') {
+  let body = (text || '').replace(URL_RE, '').replace(/\r/g, '').trim();
+  let source = '';
+
+  const quoted = QUOTE_RE.exec(body);
+  let passage;
+  if (quoted) {
+    passage = quoted[1];
+    source = body.slice(quoted[0].length - (quoted[0].match(/(\n|[—–-]|\bfrom\b)$/i)?.[0].length || 0));
+  } else {
+    const lines = body.split('\n').map((l) => l.trim()).filter(Boolean);
+    passage = lines.shift() || '';
+    source = lines.join(' ');
+  }
+  source = source
+    .split('\n')
+    .map((l) => {
+      const promo = l.search(PROMO_RE);
+      return (promo >= 0 ? l.slice(0, promo) : l).trim();
+    })
+    .filter(Boolean)
+    .join(' ');
+  source = cleanSource(source) || cleanSource(subject);
+  // "Title by Author" → keep both, it's useful context; but drop a bare "by Author".
+  if (/^by\s/i.test(source)) source = '';
+
+  passage = passage.replace(/\s+/g, ' ').trim();
+  const single = !/\s/.test(passage);
+  // "Verdant" from the start of a sentence → "verdant"; leave ALLCAPS and names like "iPhone".
+  const word = stripEdges(passage).replace(/^(\p{Lu})(\p{Ll}+)$/u, (_, a, b) => a.toLowerCase() + b);
+  return single ? { word, context: '', source } : { word: '', context: passage, source };
+}
+
+/** Words of a sentence as tappable pieces: [{ text, word }] (word is '' for spaces/punctuation). */
+export function sentencePieces(sentence) {
+  return (sentence || '').split(/(\s+)/).filter(Boolean).flatMap((chunk) => {
+    if (/^\s+$/.test(chunk)) return [{ text: chunk, word: '' }];
+    const m = /^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u.exec(chunk);
+    return [
+      m[1] && { text: m[1], word: '' },
+      m[2] && { text: m[2], word: m[2] },
+      m[3] && { text: m[3], word: '' },
+    ].filter(Boolean);
+  });
+}

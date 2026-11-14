@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">WordRecall</string>
+    <string name="title_activity_main">WordRecall</string>
+    <string name="package_name">io.github.mcuzmenco.wordrecall</string>
+    <string name="custom_url_scheme">io.github.mcuzmenco.wordrecall</string>
+    <string name="process_text_label">Save to WordRecall</string>
+</resources>

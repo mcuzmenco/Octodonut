@@ -44,6 +44,36 @@ and no server, and your data stays in your browser.
 - **Backups:** export and import as JSON. Do this regularly, because browser storage can be
   cleared.
 
+## Android app
+
+The same web app is packaged as an Android app with [Capacitor](https://capacitorjs.com).
+The app adds:
+
+- **Daily reminder** at 9:00 (changeable in Stats → Settings). The phone schedules it
+  itself, with no server. It shows how many words are due, goes away once you've
+  reviewed, and skips days with nothing due.
+- **Save from Kindle.** Select the sentence → **Share** → **WordRecall**, then tap the word.
+  Other apps also get **Save to WordRecall** in the text-selection menu.
+- Backups go through the Android share sheet (Drive, Files, email…).
+
+**Install:** on your phone, open the
+[latest Android release](../../releases/tag/android-latest) and tap **WordRecall.apk**. Builds
+from other branches go to [android-preview](../../releases/tag/android-preview). Every
+build is signed with the same key, so updates install over the old version and keep
+your words.
+
+> The signing key (`android/wordrecall-dev.keystore`) is in the repository for
+> convenience. That's fine for a personal app you install yourself. To use a private
+> key instead, add `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+> `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` as repository secrets. Switching keys
+> means uninstalling once, so export a backup first.
+
+Build locally (needs the Android SDK and Java 21):
+
+```bash
+npm run android:build   # → android/app/build/outputs/apk/release/app-release.apk
+```
+
 ## Run it
 
 You need Node 20.11 or newer. There are no dependencies to install.
@@ -77,8 +107,12 @@ app/                 the web app (static files, no build step)
   js/store.js        localStorage persistence and backup validation
   js/text.js         find/blank the word in its sentence, check typed answers
   js/dictionary.js   dictionary lookup
+  js/reminders.js    plans the daily reminder notifications
+  js/native.js       Android features (no-ops on the website)
   js/app.js          UI
+  vendor/            Capacitor's bridge script
   sw.js              offline cache
+android/             Capacitor Android project (share/selection intents in MainActivity)
 tests/               node:test suites
 scripts/serve.js     zero-dependency dev server
 ```

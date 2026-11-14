@@ -1,7 +1,7 @@
 // Offline support: network-first for the app's own files, falling back to cache.
 // Dictionary requests (other origins) are not intercepted.
 
-const CACHE = 'wordrecall-v3';
+const CACHE = 'wordrecall-v4';
 const SHELL = [
   './',
   './index.html',
@@ -13,6 +13,9 @@ const SHELL = [
   './js/session.js',
   './js/store.js',
   './js/text.js',
+  './js/native.js',
+  './js/reminders.js',
+  './vendor/capacitor.js',
   './manifest.webmanifest',
   './icon.svg',
   './icon-192.png',

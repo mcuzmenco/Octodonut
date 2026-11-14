@@ -55,3 +55,31 @@ test('parses dictionary API responses', () => {
   assert.deepEqual(res.senses, [{ pos: 'adjective', definition: 'Being everywhere at once.', example: 'ubiquitous phones', synonyms: [] }]);
   assert.deepEqual(parseEntries(null).senses, []);
 });
+
+import { parseShared, sentencePieces } from '../app/js/text.js';
+
+test('parses text shared from Kindle and other apps', () => {
+  assert.deepEqual(
+    parseShared('“It was a quixotic attempt to reform the system.”\n\n— The Great Novel by Jane Author\nhttps://a.co/d/abc123'),
+    { word: '', context: 'It was a quixotic attempt to reform the system.', source: 'The Great Novel by Jane Author' },
+  );
+  assert.deepEqual(
+    parseShared('"He gave a perfunctory nod." from Some Book by Someone. Start reading it for free: https://a.co/d/x'),
+    { word: '', context: 'He gave a perfunctory nod.', source: 'Some Book by Someone' },
+  );
+  assert.deepEqual(parseShared('“Serendipity,”'), { word: 'serendipity', context: '', source: '' });
+  assert.deepEqual(parseShared('ubiquitous'), { word: 'ubiquitous', context: '', source: '' });
+  assert.deepEqual(parseShared('NASA'), { word: 'NASA', context: '', source: '' });
+  assert.deepEqual(parseShared('The garden was verdant.\nhttps://x.org/a', 'Spring Gardens'), {
+    word: '',
+    context: 'The garden was verdant.',
+    source: 'Spring Gardens',
+  });
+  assert.deepEqual(parseShared(''), { word: '', context: '', source: '' });
+});
+
+test('splits a sentence into tappable words', () => {
+  const pieces = sentencePieces('He gave a “perfunctory” nod.');
+  assert.deepEqual(pieces.filter((p) => p.word).map((p) => p.word), ['He', 'gave', 'a', 'perfunctory', 'nod']);
+  assert.equal(pieces.map((p) => p.text).join(''), 'He gave a “perfunctory” nod.');
+});

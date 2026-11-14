@@ -1,0 +1,69 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "io.github.mcuzmenco.wordrecall"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "io.github.mcuzmenco.wordrecall"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // CI passes the run number so every build installs as an update.
+        versionCode((project.findProperty('versionCode') ?: '1').toInteger())
+        versionName(project.findProperty('versionName') ?: '1.0')
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // One fixed signing key, so new builds install over old ones and keep your words.
+    // Defaults to the dev key in the repo; set WORDRECALL_KEYSTORE (+ passwords) to use your own.
+    signingConfigs {
+        wordrecall {
+            storeFile System.getenv('WORDRECALL_KEYSTORE') ? file(System.getenv('WORDRECALL_KEYSTORE')) : rootProject.file('wordrecall-dev.keystore')
+            storePassword System.getenv('WORDRECALL_KEYSTORE_PASSWORD') ?: 'wordrecall-dev'
+            keyAlias System.getenv('WORDRECALL_KEY_ALIAS') ?: 'wordrecall'
+            keyPassword System.getenv('WORDRECALL_KEY_PASSWORD') ?: 'wordrecall-dev'
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.wordrecall
+        }
+        release {
+            signingConfig signingConfigs.wordrecall
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

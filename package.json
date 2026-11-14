@@ -6,9 +6,23 @@
   "type": "module",
   "scripts": {
     "start": "node scripts/serve.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "vendor": "cp node_modules/@capacitor/core/dist/capacitor.js app/vendor/capacitor.js",
+    "android:sync": "npm run vendor && cap sync android",
+    "android:build": "npm run android:sync && cd android && ./gradlew assembleRelease"
   },
   "engines": {
     "node": ">=20.11"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/local-notifications": "8.3.1",
+    "@capacitor/share": "8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
   }
 }

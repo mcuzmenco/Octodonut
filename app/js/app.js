@@ -9,7 +9,18 @@ import {
   isProduceUnlocked,
 } from './session.js';
 import { lookup, bestSense } from './dictionary.js';
-import { splitOnWord, containsWord, isCorrectAnswer, formatInterval } from './text.js';
+import { splitOnWord, containsWord, isCorrectAnswer, formatInterval, parseShared, sentencePieces } from './text.js';
+import { planReminders } from './reminders.js';
+import {
+  isNative,
+  onIncomingText,
+  onNotificationTap,
+  onPause,
+  onResume,
+  notificationPermission,
+  setReminders,
+  shareFile,
+} from './native.js';
 
 // ---------------------------------------------------------------- state
 
@@ -32,6 +43,27 @@ function persist() {
     toast('Could not save — browser storage is full or blocked. Export a backup now.', 'error');
   }
   updateBadge();
+  scheduleReminders();
+}
+
+// Recompute the reminder plan shortly after data changes (batches a burst of ratings).
+let reminderTimer;
+function scheduleReminders({ now = false } = {}) {
+  if (!isNative) return;
+  clearTimeout(reminderTimer);
+  reminderTimer = setTimeout(
+    () => setReminders(planReminders(data)).catch((err) => console.warn('Could not schedule reminders', err)),
+    now ? 0 : 1500,
+  );
+}
+
+/** Ask for notification permission once there's something worth reminding about. */
+async function maybeAskForNotifications() {
+  if (!isNative || !data.settings.reminders || !data.words.length) return;
+  if ((await notificationPermission()) === 'prompt') {
+    await notificationPermission({ ask: true });
+    scheduleReminders({ now: true });
+  }
 }
 
 const findWord = (id) => data.words.find((w) => w.id === id);
@@ -85,7 +117,9 @@ function speak(word) {
   else tts();
 }
 
+const canSpeak = (word) => Boolean(word.audio) || 'speechSynthesis' in window;
 const speakBtn = (word) =>
+  canSpeak(word) &&
   h('button', { class: 'icon-btn', type: 'button', title: 'Pronounce', 'aria-label': 'Pronounce', onclick: () => speak(word) }, '🔊');
 
 let toastTimer;
@@ -468,6 +502,7 @@ function renderForm(existing) {
   const view = $('#view');
 
   const senses = h('div', { class: 'senses' });
+  const picker = h('div', { class: 'picker' });
   const status = h('span', { class: 'muted small' });
   const similar = h('div', { class: 'similar small muted' });
   // Fields the dictionary filled in. They may be replaced by a later lookup;
@@ -562,10 +597,43 @@ function renderForm(existing) {
     h('label', { class: 'field' }, h('span', { class: 'label' }, label), control, help ? h('span', { class: 'help' }, help) : null);
   const manualEdit = (e) => autoFilled.delete(e.target.name);
 
+  // Shared a whole sentence (the usual case from Kindle)? Tap the word you want to learn.
+  function drawPicker() {
+    const f = form.elements;
+    const show = !existing && f.context.value.trim() && !f.word.value.trim();
+    picker.replaceChildren();
+    if (!show) return;
+    picker.append(
+      h('div', { class: 'label' }, 'Tap the word you want to learn'),
+      h(
+        'p',
+        { class: 'context picker-sentence' },
+        sentencePieces(f.context.value).map((piece) =>
+          piece.word
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'pick',
+                  onclick: () => {
+                    f.word.value = /^\p{Lu}\p{Ll}+$/u.test(piece.word) ? piece.word.toLowerCase() : piece.word;
+                    drawPicker();
+                    doLookup({ force: true });
+                  },
+                },
+                piece.text,
+              )
+            : piece.text,
+        ),
+      ),
+    );
+  }
+
   const form = h(
     'form',
     { class: 'word-form', onsubmit: (e) => onSave(e) },
     h('h2', {}, existing ? 'Edit word' : 'Add a word'),
+    picker,
     field(
       'Word or phrase',
       h(
@@ -581,6 +649,7 @@ function renderForm(existing) {
           oninput: () => {
             clearTimeout(debounce);
             debounce = setTimeout(() => doLookup(), 800);
+            drawPicker();
           },
           onblur: () => {
             clearTimeout(debounce);
@@ -600,7 +669,16 @@ function renderForm(existing) {
     ),
     field(
       'Sentence where you found it',
-      h('textarea', { name: 'context', rows: 3, value: prefill.context || '', oninput: manualEdit, placeholder: 'Paste or type the sentence from your book or article' }),
+      h('textarea', {
+        name: 'context',
+        rows: 3,
+        value: prefill.context || '',
+        oninput: (e) => {
+          manualEdit(e);
+          drawPicker();
+        },
+        placeholder: 'Paste or type the sentence from your book or article',
+      }),
       'Memories are tied to context: you’ll be quizzed on the word inside this sentence.',
     ),
     h('div', {}, status, senses),
@@ -656,13 +734,15 @@ function renderForm(existing) {
     persist();
     markStale();
     requestPersistence();
+    maybeAskForNotifications();
     toast(`Saved “${fields.word}”. You’ll meet it in your next review.`);
     renderForm(null);
   }
 
   view.replaceChildren(form);
   showSimilar();
-  if (!existing) form.elements.word.focus();
+  drawPicker();
+  if (!existing && !picker.childElementCount) form.elements.word.focus();
   if (!existing && prefill.word && !prefill.definition) doLookup();
 }
 
@@ -775,6 +855,15 @@ function renderStats() {
   const stat = (label, value, help) => h('div', { class: 'stat', title: help || '' }, h('div', { class: 'stat-value' }, value), h('div', { class: 'stat-label' }, label));
 
   const s = data.settings;
+  const reminderStatus = h('p', { class: 'help' });
+  if (isNative) {
+    notificationPermission().then((p) => {
+      reminderStatus.textContent =
+        p === 'denied'
+          ? 'Notifications are turned off for WordRecall. Enable them in Android Settings → Apps → WordRecall → Notifications.'
+          : 'Only on days when words are due, with the count. It goes away once you’ve reviewed.';
+    });
+  }
   const settingsForm = h(
     'form',
     {
@@ -786,7 +875,9 @@ function renderStats() {
           desiredRetention: f.desiredRetention.value,
           newPerDay: f.newPerDay.value,
           maxReviews: f.maxReviews.value,
+          ...(f.reminders ? { reminders: f.reminders.checked, reminderTime: f.reminderTime.value } : {}),
         });
+        if (data.settings.reminders) maybeAskForNotifications();
         scheduler = makeScheduler();
         persist();
         markStale();
@@ -816,6 +907,20 @@ function renderStats() {
       h('label', { class: 'field' }, h('span', { class: 'label' }, 'New words per day'), h('input', { name: 'newPerDay', type: 'number', min: 0, max: 200, value: s.newPerDay })),
       h('label', { class: 'field' }, h('span', { class: 'label' }, 'Max reviews per day'), h('input', { name: 'maxReviews', type: 'number', min: 10, max: 9999, value: s.maxReviews })),
     ),
+    isNative
+      ? h(
+          'div',
+          { class: 'row two reminder-row' },
+          h(
+            'label',
+            { class: 'field check' },
+            h('input', { name: 'reminders', type: 'checkbox', checked: s.reminders }),
+            h('span', {}, 'Daily reminder'),
+          ),
+          h('label', { class: 'field' }, h('span', { class: 'label' }, 'At'), h('input', { name: 'reminderTime', type: 'time', value: s.reminderTime })),
+        )
+      : null,
+    isNative ? reminderStatus : null,
   );
   // <select value> isn't an attribute; set it after options exist.
   settingsForm.elements.desiredRetention.value = String(s.desiredRetention);
@@ -850,13 +955,19 @@ function renderStats() {
     ),
 
     h('h3', {}, 'Capture words while reading'),
-    h(
-      'p',
-      {},
-      'Drag this button to your bookmarks bar. On any web page, select a word and click it — the word, its sentence and the page title are filled in for you.',
-    ),
-    h('p', {}, bookmarkletLink()),
-    h('p', { class: 'muted small' }, 'On Android, install this app (browser menu → “Install app”) and use Share → WordRecall on selected text.'),
+    ...(isNative
+      ? [
+          h('p', {}, h('b', {}, 'Kindle: '), 'select the sentence with the word → ', h('b', {}, 'Share'), ' → ', h('b', {}, 'WordRecall'), ', then tap the word.'),
+          h('p', {}, h('b', {}, 'Other apps: '), 'select text → ', h('b', {}, '⋮'), ' → ', h('b', {}, 'Save to WordRecall'), ', or use Share.'),
+        ]
+      : [
+          h(
+            'p',
+            {},
+            'Drag this button to your bookmarks bar. On any web page, select a word and click it — the word, its sentence and the page title are filled in for you.',
+          ),
+          h('p', {}, bookmarkletLink()),
+        ]),
 
     h('h3', {}, 'Settings'),
     settingsForm,
@@ -865,7 +976,7 @@ function renderStats() {
     h(
       'p',
       { class: backupAge == null || backupAge > 14 ? 'warn' : 'muted' },
-      'Your words are stored only in this browser. ',
+      isNative ? 'Your words are stored only on this phone. ' : 'Your words are stored only in this browser. ',
       backupAge == null ? 'You haven’t exported a backup yet.' : `Last backup: ${backupAge === 0 ? 'today' : `${backupAge} days ago`}.`,
     ),
     h(
@@ -912,12 +1023,25 @@ function howItWorks() {
   );
 }
 
-function exportData() {
+async function exportData() {
   const today = todayStr();
+  const name = `wordrecall-backup-${today}.json`;
+  const json = JSON.stringify(data, null, 2);
+  if (isNative) {
+    try {
+      await shareFile(name, json);
+      data.settings.lastBackup = today;
+      persist();
+      renderStats();
+    } catch (err) {
+      if (!/cancel/i.test(err?.message || '')) toast(`Backup failed: ${err.message || err}`, 'error');
+    }
+    return;
+  }
   data.settings.lastBackup = today;
   persist();
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = h('a', { href: URL.createObjectURL(blob), download: `wordrecall-backup-${today}.json` });
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: name });
   document.body.append(a);
   a.click();
   a.remove();
@@ -956,15 +1080,20 @@ async function requestPersistence() {
 function readIncomingWord() {
   const p = new URLSearchParams(location.search);
   if (![...p.keys()].some((k) => ['word', 'context', 'text', 'title'].includes(k))) return;
-  let word = (p.get('word') || '').trim();
-  let context = (p.get('context') || '').trim();
-  const text = (p.get('text') || '').trim();
-  // Android share target: a single shared token is the word, longer text is the sentence.
-  if (text && !word && !/\s/.test(text)) word = text.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '');
-  else if (text && !context) context = text;
-  const source = (p.get('source') || p.get('title') || '').trim();
-  pendingPrefill = { word, context, source };
+  // Bookmarklet sends word/context/source; the web share target sends text/title.
+  const shared = parseShared(p.get('text') || '', p.get('title') || '');
+  pendingPrefill = {
+    word: (p.get('word') || '').trim() || shared.word,
+    context: (p.get('context') || '').trim() || shared.context,
+    source: (p.get('source') || '').trim() || shared.source,
+  };
   history.replaceState(null, '', `${location.pathname}#add`);
+}
+
+function openAddForm(prefill) {
+  pendingPrefill = prefill;
+  if (location.hash === '#add') route();
+  else location.hash = '#add';
 }
 
 readIncomingWord();
@@ -988,6 +1117,19 @@ window.addEventListener('storage', (e) => {
 updateBadge();
 route();
 
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+if (isNative) {
+  onIncomingText(({ text, subject }) => openAddForm(parseShared(text, subject)));
+  onNotificationTap(() => {
+    location.hash = '#review';
+  });
+  onResume(() => {
+    updateBadge();
+    if (currentRoute() === 'review' && session && session.day !== todayStr()) renderReview();
+    scheduleReminders({ now: true });
+  });
+  onPause(() => scheduleReminders({ now: true }));
+  scheduleReminders({ now: true });
+  maybeAskForNotifications();
+} else if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker failed', err));
 }
