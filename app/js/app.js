@@ -910,14 +910,14 @@ function renderStats() {
     isNative
       ? h(
           'div',
-          { class: 'row two reminder-row' },
+          { class: 'field' },
+          h('span', { class: 'label' }, 'Daily reminder'),
           h(
-            'label',
-            { class: 'field check' },
-            h('input', { name: 'reminders', type: 'checkbox', checked: s.reminders }),
-            h('span', {}, 'Daily reminder'),
+            'div',
+            { class: 'reminder-row' },
+            h('label', { class: 'check' }, h('input', { name: 'reminders', type: 'checkbox', checked: s.reminders }), 'Remind me at'),
+            h('input', { name: 'reminderTime', type: 'time', value: s.reminderTime, 'aria-label': 'Reminder time' }),
           ),
-          h('label', { class: 'field' }, h('span', { class: 'label' }, 'At'), h('input', { name: 'reminderTime', type: 'time', value: s.reminderTime })),
         )
       : null,
     isNative ? reminderStatus : null,
